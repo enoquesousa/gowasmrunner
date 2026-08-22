@@ -7,7 +7,6 @@
   <br>
 
   ![CI](https://img.shields.io/github/actions/workflow/status/enoquesousa/gowasmrunner/ci.yml?style=flat&logo=githubactions&logoColor=white)
-  [![Go Report Card](https://goreportcard.com/badge/github.com/enoquesousa/gowasmrunner?style=flat)](https://goreportcard.com/report/github.com/enoquesousa/gowasmrunner)
   [![CodeFactor](https://www.codefactor.io/repository/github/enoquesousa/gowasmrunner/badge?style=flat)](https://www.codefactor.io/repository/github/enoquesousa/gowasmrunner)
   [![Go Reference](https://img.shields.io/badge/go.dev-reference-007d9c?style=flat&logo=go&logoColor=white)](https://pkg.go.dev/github.com/enoquesousa/gowasmrunner)
   ![License](https://img.shields.io/github/license/enoquesousa/gowasmrunner?style=flat&color=blue)
