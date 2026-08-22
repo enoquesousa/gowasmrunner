@@ -5,7 +5,7 @@ First off, thank you for considering contributing to `gowasmrunner`! It's people
 ## Development Setup
 
 1. Ensure you have **Go 1.21 or newer** installed.
-2. Clone the repository: `git clone https://github.com/ESousa97/gowasmrunner.git`
+2. Clone the repository: `git clone https://github.com/enoquesousa/gowasmrunner.git`
 3. Download dependencies: `go mod download`
 4. Run the initial tests to ensure your environment is sane: `make test`
 

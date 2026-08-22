@@ -1,4 +1,4 @@
-module github.com/esousa97/gowasmrunner
+module github.com/enoquesousa/gowasmrunner
 
 go 1.24.0
 
