@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/esousa97/gowasmrunner/internal/engine"
+	"github.com/enoquesousa/gowasmrunner/internal/engine"
 )
 
 func TestWasmRunner(t *testing.T) {

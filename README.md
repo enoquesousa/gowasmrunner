@@ -6,13 +6,13 @@
 
   <br>
 
-  ![CI](https://img.shields.io/github/actions/workflow/status/ESousa97/gowasmrunner/ci.yml?style=flat&logo=githubactions&logoColor=white)
-  [![Go Report Card](https://goreportcard.com/badge/github.com/ESousa97/gowasmrunner?style=flat)](https://goreportcard.com/report/github.com/ESousa97/gowasmrunner)
-  [![CodeFactor](https://www.codefactor.io/repository/github/esousa97/gowasmrunner/badge?style=flat)](https://www.codefactor.io/repository/github/esousa97/gowasmrunner)
-  [![Go Reference](https://img.shields.io/badge/go.dev-reference-007d9c?style=flat&logo=go&logoColor=white)](https://pkg.go.dev/github.com/ESousa97/gowasmrunner)
-  ![License](https://img.shields.io/github/license/ESousa97/gowasmrunner?style=flat&color=blue)
-  ![Go Version](https://img.shields.io/github/go-mod/go-version/ESousa97/gowasmrunner?style=flat&logo=go&logoColor=white)
-  ![Last Commit](https://img.shields.io/github/last-commit/ESousa97/gowasmrunner?style=flat)
+  ![CI](https://img.shields.io/github/actions/workflow/status/enoquesousa/gowasmrunner/ci.yml?style=flat&logo=githubactions&logoColor=white)
+  [![Go Report Card](https://goreportcard.com/badge/github.com/enoquesousa/gowasmrunner?style=flat)](https://goreportcard.com/report/github.com/enoquesousa/gowasmrunner)
+  [![CodeFactor](https://www.codefactor.io/repository/github/enoquesousa/gowasmrunner/badge?style=flat)](https://www.codefactor.io/repository/github/enoquesousa/gowasmrunner)
+  [![Go Reference](https://img.shields.io/badge/go.dev-reference-007d9c?style=flat&logo=go&logoColor=white)](https://pkg.go.dev/github.com/enoquesousa/gowasmrunner)
+  ![License](https://img.shields.io/github/license/enoquesousa/gowasmrunner?style=flat&color=blue)
+  ![Go Version](https://img.shields.io/github/go-mod/go-version/enoquesousa/gowasmrunner?style=flat&logo=go&logoColor=white)
+  ![Last Commit](https://img.shields.io/github/last-commit/enoquesousa/gowasmrunner?style=flat)
 </div>
 
 ---
@@ -59,13 +59,13 @@ Hello, World
 ### As a binary
 
 ```bash
-go install github.com/ESousa97/gowasmrunner/cmd/runner@latest
+go install github.com/enoquesousa/gowasmrunner/cmd/runner@latest
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/ESousa97/gowasmrunner.git
+git clone https://github.com/enoquesousa/gowasmrunner.git
 cd gowasmrunner
 make build
 make run
@@ -199,12 +199,12 @@ Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 **Enoque Sousa**
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/enoque-sousa-bb89aa168/)
-[![GitHub](https://img.shields.io/badge/GitHub-100000?style=flat&logo=github&logoColor=white)](https://github.com/ESousa97)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=flat&logo=github&logoColor=white)](https://github.com/enoquesousa)
 [![Portfolio](https://img.shields.io/badge/Portfolio-FF5722?style=flat&logo=target&logoColor=white)](https://enoquesousa.vercel.app)
 
 **[⬆ Back to Top](#go-wasm-runner)**
 
-Made with ❤️ by [Enoque Sousa](https://github.com/ESousa97)
+Made with ❤️ by [Enoque Sousa](https://github.com/enoquesousa)
 
 **Project Status:** Archived — Study Project
 
