@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,11 @@ func TestWasmRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create runner: %v", err)
 	}
-	defer runner.Close(ctx)
+	defer func() {
+		if closeErr := runner.Close(ctx); closeErr != nil {
+			t.Error(closeErr)
+		}
+	}()
 
 	// Subtest 1: Numeric Operation (Addition)
 	t.Run("Numeric Addition", func(t *testing.T) {
@@ -99,17 +104,29 @@ func TestWasmRunner(t *testing.T) {
 
 	// Subtest 4: Execution Timeout
 	t.Run("Execution Timeout", func(t *testing.T) {
-		wasmPath := filepath.Join("..", "examples", "infinite_loop.wasm")
+		wasmPath := writeSecurityFixture(t, loopModuleFixture())
 
 		// Create a runner with a short timeout for the test
 		shortTimeoutCfg := cfg
 		shortTimeoutCfg.Timeout = 100 * time.Millisecond
-		r, _ := engine.NewRunner(ctx, shortTimeoutCfg)
-		defer r.Close(ctx)
+		r, err := engine.NewRunner(ctx, shortTimeoutCfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if closeErr := r.Close(ctx); closeErr != nil {
+				t.Error(closeErr)
+			}
+		}()
 
-		_, err := r.RunFunction(ctx, wasmPath, "infinite_loop")
-		if err == nil {
-			t.Error("expected timeout error, got nil")
+		// Verify the fixture compiles and runs before exercising its endless loop.
+		ready, err := r.RunFunction(ctx, wasmPath, "ready")
+		if err != nil || len(ready) != 1 || ready[0] != 1 {
+			t.Fatalf("invalid timeout fixture: results=%v, error=%v", ready, err)
+		}
+		_, err = r.RunFunction(ctx, wasmPath, "infinite_loop")
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected execution deadline error, got %v", err)
 		}
 	})
 

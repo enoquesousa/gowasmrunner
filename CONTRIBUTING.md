@@ -4,10 +4,16 @@ First off, thank you for considering contributing to `gowasmrunner`! It's people
 
 ## Development Setup
 
-1. Ensure you have **Go 1.21 or newer** installed.
+1. Ensure you have **Go 1.26.10 or newer** installed, aligned with CI and Docker.
 2. Clone the repository: `git clone https://github.com/enoquesousa/gowasmrunner.git`
 3. Download dependencies: `go mod download`
-4. Run the initial tests to ensure your environment is sane: `make test`
+4. Generate the example fixtures and run the tests: `make gen-all && make test`.
+
+CI also runs `go test -race -timeout=90s ./...`. Keep security regressions in
+`tests/` and check specific failure causes: an invalid or missing Wasm file must
+not count as evidence that a valid infinite loop was interrupted. Do not commit
+real tokens or private keys; the TLS helper creates disposable development
+identities outside version control.
 
 ## Code Style and Conventions
 
