@@ -422,7 +422,8 @@ func gatewayTLSFiles(t *testing.T) (string, string, *x509.CertPool) {
 	return certPath, keyPath, roots
 }
 
-func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
+func loadGatewayGreetingRunner(t *testing.T, ctx context.Context) *engine.Runner {
+	t.Helper()
 	fixture, err := os.ReadFile(filepath.Join("..", "examples", "greet.wasm"))
 	if err != nil {
 		t.Fatalf("generate the greeting fixture with make gen-all before testing: %v", err)
@@ -431,7 +432,6 @@ func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(plugins, "greet.wasm"), fixture, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
 	runner, err := engine.NewRunner(ctx, engine.RunnerConfig{MaxMemoryPages: 20, Timeout: time.Second, Stdout: io.Discard})
 	if err != nil {
 		t.Fatal(err)
@@ -444,13 +444,13 @@ func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
 	if err := runner.LoadPlugins(ctx, plugins); err != nil {
 		t.Fatal(err)
 	}
+	return runner
+}
+
+func startGatewayTLSTestServer(t *testing.T, runner gateway.Runner) (string, *http.Client) {
+	t.Helper()
 	certPath, keyPath, roots := gatewayTLSFiles(t)
-	var calls atomic.Int32
-	countedRunner := gatewayRunnerFunc(func(ctx context.Context, plugin, function, input string) (string, error) {
-		calls.Add(1)
-		return runner.RunPluginString(ctx, plugin, function, input)
-	})
-	server, err := gateway.NewServer(gateway.Config{Host: "127.0.0.1", Port: "0", APIToken: gatewayToken(gatewayTestToken), TLSCert: certPath, TLSKey: keyPath}, countedRunner)
+	server, err := gateway.NewServer(gateway.Config{Host: "127.0.0.1", Port: "0", APIToken: gatewayToken(gatewayTestToken), TLSCert: certPath, TLSKey: keyPath}, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,6 +473,32 @@ func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
 	t.Cleanup(transport.CloseIdleConnections)
 	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
 	endpoint := "https://" + listener.Addr().String() + "/execute/greet.wasm"
+	return endpoint, client
+}
+
+func readGatewayTLSResponse(t *testing.T, client *http.Client, request *http.Request) (*http.Response, []byte) {
+	t.Helper()
+	response, responseErr := client.Do(request)
+	if responseErr != nil {
+		t.Fatal(responseErr)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	if readErr != nil || closeErr != nil {
+		t.Fatalf("failed to consume HTTP response: read=%v, close=%v", readErr, closeErr)
+	}
+	return response, body
+}
+
+func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
+	ctx := context.Background()
+	runner := loadGatewayGreetingRunner(t, ctx)
+	var calls atomic.Int32
+	countedRunner := gatewayRunnerFunc(func(ctx context.Context, plugin, function, input string) (string, error) {
+		calls.Add(1)
+		return runner.RunPluginString(ctx, plugin, function, input)
+	})
+	endpoint, client := startGatewayTLSTestServer(t, countedRunner)
 	for _, test := range []struct {
 		name   string
 		token  string
@@ -490,15 +516,7 @@ func TestGatewayTLSExecutesRealPlugin(t *testing.T) {
 			if test.token != "" {
 				request.Header.Set("Authorization", "Bearer "+test.token)
 			}
-			response, responseErr := client.Do(request)
-			if responseErr != nil {
-				t.Fatal(responseErr)
-			}
-			body, readErr := io.ReadAll(response.Body)
-			closeErr := response.Body.Close()
-			if readErr != nil || closeErr != nil {
-				t.Fatalf("failed to consume HTTP response: read=%v, close=%v", readErr, closeErr)
-			}
+			response, body := readGatewayTLSResponse(t, client, request)
 			if response.StatusCode != test.status || response.Header.Get("Cache-Control") != "no-store" {
 				t.Fatalf("unexpected real HTTPS response: status=%d, body=%q", response.StatusCode, body)
 			}
