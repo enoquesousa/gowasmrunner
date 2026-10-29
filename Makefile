@@ -3,7 +3,7 @@
 BINARY_NAME=gowasmrunner
 
 build:
-	go build -o bin/$(BINARY_NAME) cmd/runner/main.go
+	go build -o bin/$(BINARY_NAME) ./cmd/runner
 
 test:
 	go test ./...

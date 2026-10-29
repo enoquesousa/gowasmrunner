@@ -1,0 +1,9 @@
+.git
+bin
+certs
+.env
+.env.*
+**/*.key
+**/*.pem
+**/*.log
+**/*.out

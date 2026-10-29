@@ -14,3 +14,11 @@ examples/*.wasm
 vendor/
 *.test
 *.out
+
+# Local gateway credentials and TLS material
+/certs/
+.env
+.env.*
+!.env.example
+*.key
+*.pem

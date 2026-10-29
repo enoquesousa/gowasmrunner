@@ -5,17 +5,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/enoquesousa/gowasmrunner/internal/engine"
+	"github.com/enoquesousa/gowasmrunner/internal/gateway"
 )
 
 func main() {
@@ -25,6 +25,9 @@ func main() {
 	pluginDir := flag.String("plugins", "./plugins", "Directory to scan for plugins")
 	funcName := flag.String("func", "add", "The name of the exported function to invoke")
 	port := flag.String("port", "8080", "Port for the HTTP server to listen on")
+	host := flag.String("host", "127.0.0.1", "HTTP bind host; remote addresses require a token and TLS")
+	tlsCert := flag.String("tls-cert", "", "Path to the PEM HTTPS certificate chain")
+	tlsKey := flag.String("tls-key", "", "Path to the PEM HTTPS private key")
 	flag.Parse()
 
 	if *wasmPath == "" && *mode != "plugin" && *mode != "server" {
@@ -45,11 +48,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error creating runner: %v", err)
 	}
-	defer runner.Close(ctx)
+	defer func() {
+		if closeErr := runner.Close(ctx); closeErr != nil {
+			log.Print("Error closing WebAssembly runtime")
+		}
+	}()
 
 	switch *mode {
 	case "server":
-		runServerMode(ctx, runner, *port, *pluginDir)
+		serverConfig := gateway.Config{Host: *host, Port: *port, TLSCert: *tlsCert, TLSKey: *tlsKey}
+		if token, configured := os.LookupEnv("GOWASMRUNNER_API_TOKEN"); configured {
+			serverConfig.APIToken = &token
+		}
+		runServerMode(ctx, runner, serverConfig, *pluginDir)
 	case "plugin":
 		runPluginMode(ctx, runner, flag.Args(), *pluginDir)
 	case "string":
@@ -65,62 +76,29 @@ func printUsageAndExit() {
 	fmt.Println("Usage:")
 	fmt.Println("  Numeric/String: gowasmrunner -wasm <path> [-mode string|numeric] [args...]")
 	fmt.Println("  Plugin:         gowasmrunner -mode plugin <plugin_name> <func_name> [args...]")
-	fmt.Println("  Server:         gowasmrunner -mode server [-port 8080] [-plugins ./plugins]")
+	fmt.Println("  Server:         gowasmrunner -mode server [-host 127.0.0.1] [-port 8080] [-plugins ./plugins]")
 	flag.PrintDefaults()
 	os.Exit(1)
 }
 
-func runServerMode(ctx context.Context, runner *engine.Runner, port string, pluginDir string) {
-	if err := runner.LoadPlugins(ctx, pluginDir); err != nil {
-		log.Fatalf("Error loading plugins: %v", err)
+func runServerMode(ctx context.Context, runner *engine.Runner, config gateway.Config, pluginDir string) {
+	server, err := gateway.NewServer(config, runner)
+	if err != nil {
+		log.Fatalf("Invalid HTTP gateway configuration: %v", err)
+	}
+	if loadErr := runner.LoadPlugins(ctx, pluginDir); loadErr != nil {
+		log.Fatalf("Error loading plugins: %v", loadErr)
 	}
 
-	http.HandleFunc("/execute/", func(w http.ResponseWriter, r *http.Request) {
-		handleExecute(w, r, runner)
-	})
-
-	log.Printf("🚀 gowasmrunner HTTP serverless gateway running on port %s", port)
-	log.Printf("Plugins loaded from: %s", pluginDir)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	log.Printf("HTTP gateway listening at %s", strconv.Quote(server.Addr))
+	log.Printf("Plugins loaded from: %s", strconv.Quote(pluginDir))
+	if server.TLSConfig != nil {
+		err = server.ListenAndServeTLS("", "")
+	} else {
+		err = server.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Server failed: %v", err)
-	}
-}
-
-func handleExecute(w http.ResponseWriter, r *http.Request, runner *engine.Runner) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed - Use POST", http.StatusMethodNotAllowed)
-		return
-	}
-
-	pluginName := strings.TrimPrefix(r.URL.Path, "/execute/")
-	if pluginName == "" {
-		http.Error(w, "Plugin name is required in path", http.StatusBadRequest)
-		return
-	}
-
-	targetFunc := r.URL.Query().Get("func")
-	if targetFunc == "" {
-		targetFunc = "greet" // Default to ease testing
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
-	defer r.Body.Close()
-
-	result, err := runner.RunPluginString(r.Context(), pluginName, targetFunc, string(body))
-	if err != nil {
-		log.Printf("Error executing plugin %s: %v", pluginName, err)
-		http.Error(w, fmt.Sprintf("Error executing plugin: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(result)); err != nil {
-		log.Printf("Error writing response: %v", err)
 	}
 }
 

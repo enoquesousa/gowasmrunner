@@ -10,38 +10,58 @@ on:
       - master
       - main
 
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   lint:
     name: Lint Code
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: '1.21'
+          go-version-file: go.mod
           cache: true
 
+      - name: Check Go formatting
+        run: |
+          unformatted_files="$(gofmt -l .)"
+          if [ -n "$unformatted_files" ]; then
+            printf '%s\n' "$unformatted_files"
+            exit 1
+          fi
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.12.1
           args: --timeout=3m
 
   test:
     name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: lint
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: '1.21'
+          go-version-file: go.mod
           cache: true
 
       - name: Verify dependencies
@@ -53,22 +73,33 @@ jobs:
       - name: Build CLI Binary
         run: make build
 
-      - name: Run Integration Tests
-        run: make test
+      - name: Vet Go code
+        run: go vet ./...
+
+      - name: Run Integration Tests with Race Detector
+        run: go test -race -timeout=90s ./...
+
+      - name: Scan for reachable dependency vulnerabilities
+        run: |
+          runtime_go_version="$(go env GOVERSION)"
+          GOVERSION="$runtime_go_version" go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   docker:
     name: Docker Build Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: test
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build Docker Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false

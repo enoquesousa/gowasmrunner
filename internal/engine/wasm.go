@@ -8,13 +8,17 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"time"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
@@ -48,14 +52,14 @@ type Runner struct {
 // It automatically integrates [wasi_snapshot_preview1] for secure stdout logging.
 func NewRunner(ctx context.Context, cfg RunnerConfig) (*Runner, error) {
 	rtCfg := wazero.NewRuntimeConfig().
-		WithMemoryLimitPages(cfg.MaxMemoryPages)
+		WithMemoryLimitPages(cfg.MaxMemoryPages).
+		WithCloseOnContextDone(true)
 
 	r := wazero.NewRuntimeWithConfig(ctx, rtCfg)
 
 	_, err := wasi_snapshot_preview1.Instantiate(ctx, r)
 	if err != nil {
-		r.Close(ctx)
-		return nil, fmt.Errorf("failed to instantiate WASI: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to instantiate WASI: %w", err), r.Close(ctx))
 	}
 
 	return &Runner{
@@ -95,7 +99,7 @@ func (r *Runner) LoadPlugins(ctx context.Context, dirPath string) error {
 }
 
 // RunPlugin executa uma função de um plugin específico usando o módulo em cache.
-func (r *Runner) RunPlugin(ctx context.Context, pluginName string, funcName string, params ...uint64) ([]uint64, error) {
+func (r *Runner) RunPlugin(ctx context.Context, pluginName string, funcName string, params ...uint64) (_ []uint64, err error) {
 	compiled, ok := r.plugins[pluginName]
 	if !ok {
 		return nil, fmt.Errorf("plugin %s not found in cache", pluginName)
@@ -113,7 +117,7 @@ func (r *Runner) RunPlugin(ctx context.Context, pluginName string, funcName stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate plugin %s: %w", pluginName, err)
 	}
-	defer mod.Close(execCtx)
+	defer closeModule(execCtx, mod, &err)
 
 	f := mod.ExportedFunction(funcName)
 	if f == nil {
@@ -126,7 +130,7 @@ func (r *Runner) RunPlugin(ctx context.Context, pluginName string, funcName stri
 // RunPluginString passes a string payload to a cached Wasm plugin and retrieves a string result.
 // It leverages linear memory integration: first allocating memory on the guest,
 // then writing the host string directly into the guest bounds.
-func (r *Runner) RunPluginString(ctx context.Context, pluginName string, funcName string, input string) (string, error) {
+func (r *Runner) RunPluginString(ctx context.Context, pluginName string, funcName string, input string) (_ string, err error) {
 	compiled, ok := r.plugins[pluginName]
 	if !ok {
 		return "", fmt.Errorf("plugin %s not found in cache", pluginName)
@@ -143,44 +147,13 @@ func (r *Runner) RunPluginString(ctx context.Context, pluginName string, funcNam
 	if err != nil {
 		return "", fmt.Errorf("failed to instantiate plugin %s: %w", pluginName, err)
 	}
-	defer mod.Close(execCtx)
+	defer closeModule(execCtx, mod, &err)
 
-	targetFunc := mod.ExportedFunction(funcName)
-	allocFunc := mod.ExportedFunction("allocate")
-	if targetFunc == nil || allocFunc == nil {
-		return "", fmt.Errorf("exported functions '%s' or 'allocate' not found in plugin %s", funcName, pluginName)
-	}
-
-	inputSize := uint64(len(input))
-	results, err := allocFunc.Call(execCtx, inputSize)
-	if err != nil {
-		return "", fmt.Errorf("failed to allocate memory: %w", err)
-	}
-	inputPtr := results[0]
-
-	if !mod.Memory().Write(uint32(inputPtr), []byte(input)) {
-		return "", fmt.Errorf("out of memory bounds when writing string")
-	}
-
-	targetResults, err := targetFunc.Call(execCtx, inputPtr, inputSize)
-	if err != nil {
-		return "", fmt.Errorf("failed to call %s: %w", funcName, err)
-	}
-
-	ptrLen := targetResults[0]
-	resPtr := uint32(ptrLen >> 32)
-	resLen := uint32(ptrLen)
-
-	resBytes, ok := mod.Memory().Read(resPtr, resLen)
-	if !ok {
-		return "", fmt.Errorf("out of memory bounds when reading result")
-	}
-
-	return string(resBytes), nil
+	return callString(execCtx, mod, funcName, input)
 }
 
 // RunFunction carrega um arquivo Wasm e executa uma função numérica genérica.
-func (r *Runner) RunFunction(ctx context.Context, wasmPath string, funcName string, params ...uint64) ([]uint64, error) {
+func (r *Runner) RunFunction(ctx context.Context, wasmPath string, funcName string, params ...uint64) (_ []uint64, err error) {
 	execCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
@@ -197,7 +170,7 @@ func (r *Runner) RunFunction(ctx context.Context, wasmPath string, funcName stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to instantiate wasm module: %w", err)
 	}
-	defer mod.Close(execCtx)
+	defer closeModule(execCtx, mod, &err)
 
 	f := mod.ExportedFunction(funcName)
 	if f == nil {
@@ -208,7 +181,7 @@ func (r *Runner) RunFunction(ctx context.Context, wasmPath string, funcName stri
 }
 
 // RunGreet carrega o módulo e executa a lógica de saudação com strings.
-func (r *Runner) RunGreet(ctx context.Context, wasmPath string, name string) (string, error) {
+func (r *Runner) RunGreet(ctx context.Context, wasmPath string, name string) (_ string, err error) {
 	execCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
@@ -225,35 +198,43 @@ func (r *Runner) RunGreet(ctx context.Context, wasmPath string, name string) (st
 	if err != nil {
 		return "", fmt.Errorf("failed to instantiate wasm module: %w", err)
 	}
-	defer mod.Close(execCtx)
+	defer closeModule(execCtx, mod, &err)
 
-	greetFunc := mod.ExportedFunction("greet")
-	allocFunc := mod.ExportedFunction("allocate")
-	if greetFunc == nil || allocFunc == nil {
-		return "", fmt.Errorf("exported functions 'greet' or 'allocate' not found")
+	return callString(execCtx, mod, "greet", name)
+}
+
+// callString implements the shared memory32 string ABI used by both entry points.
+func callString(ctx context.Context, mod api.Module, funcName, input string) (string, error) {
+	target, err := stringFunction(mod, funcName, []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, api.ValueTypeI64)
+	if err != nil {
+		return "", err
 	}
-
-	nameSize := uint64(len(name))
-	results, err := allocFunc.Call(execCtx, nameSize)
+	allocate, err := stringFunction(mod, "allocate", []api.ValueType{api.ValueTypeI32}, api.ValueTypeI32)
+	if err != nil {
+		return "", err
+	}
+	memory, err := stringMemory(mod)
+	if err != nil {
+		return "", err
+	}
+	inputSize := uint64(len(input))
+	if inputSize > uint64(^uint32(0)) {
+		return "", fmt.Errorf("input exceeds the 32-bit Wasm string ABI")
+	}
+	inputPtr, err := callSingleResult(ctx, allocate, inputSize)
 	if err != nil {
 		return "", fmt.Errorf("failed to allocate memory: %w", err)
 	}
-	namePtr := results[0]
-
-	if !mod.Memory().Write(uint32(namePtr), []byte(name)) {
+	if !memory.Write(uint32(inputPtr), []byte(input)) {
 		return "", fmt.Errorf("out of memory bounds when writing string")
 	}
-
-	greetResults, err := greetFunc.Call(execCtx, namePtr, nameSize)
+	ptrLen, err := callSingleResult(ctx, target, inputPtr, inputSize)
 	if err != nil {
-		return "", fmt.Errorf("failed to call greet: %w", err)
+		return "", fmt.Errorf("failed to call %s: %w", funcName, err)
 	}
-
-	ptrLen := greetResults[0]
 	resPtr := uint32(ptrLen >> 32)
 	resLen := uint32(ptrLen)
-
-	resBytes, ok := mod.Memory().Read(resPtr, resLen)
+	resBytes, ok := memory.Read(resPtr, resLen)
 	if !ok {
 		return "", fmt.Errorf("out of memory bounds when reading result")
 	}
@@ -261,10 +242,48 @@ func (r *Runner) RunGreet(ctx context.Context, wasmPath string, name string) (st
 	return string(resBytes), nil
 }
 
+func stringFunction(mod api.Module, name string, params []api.ValueType, result api.ValueType) (api.Function, error) {
+	function := mod.ExportedFunction(name)
+	if function == nil {
+		return nil, fmt.Errorf("function %s not found", name)
+	}
+	definition := function.Definition()
+	if !slices.Equal(definition.ParamTypes(), params) || !slices.Equal(definition.ResultTypes(), []api.ValueType{result}) {
+		return nil, fmt.Errorf("invalid string ABI signature for function %s", name)
+	}
+	return function, nil
+}
+
+func stringMemory(mod api.Module) (api.Memory, error) {
+	memory := mod.Memory()
+	value := reflect.ValueOf(memory)
+	// wazero can return a typed nil Memory; preserve support for unexported memory.
+	if !value.IsValid() || (value.Kind() == reflect.Pointer && value.IsNil()) {
+		return nil, fmt.Errorf("plugin has no linear memory for the string ABI")
+	}
+	return memory, nil
+}
+
+func callSingleResult(ctx context.Context, function api.Function, params ...uint64) (uint64, error) {
+	results, err := function.Call(ctx, params...)
+	if err != nil {
+		return 0, err
+	}
+	if len(results) != 1 {
+		return 0, fmt.Errorf("string ABI function must return exactly one result")
+	}
+	return results[0], nil
+}
+
+func closeModule(ctx context.Context, mod api.Module, executionErr *error) {
+	*executionErr = errors.Join(*executionErr, mod.Close(ctx))
+}
+
 // Close libera os recursos e o cache.
 func (r *Runner) Close(ctx context.Context) error {
+	var err error
 	for _, p := range r.plugins {
-		p.Close(ctx)
+		err = errors.Join(err, p.Close(ctx))
 	}
-	return r.runtime.Close(ctx)
+	return errors.Join(err, r.runtime.Close(ctx))
 }
